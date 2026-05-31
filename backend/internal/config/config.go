@@ -88,6 +88,7 @@ type Config struct {
 	UsageCleanup            UsageCleanupConfig            `mapstructure:"usage_cleanup"`
 	Concurrency             ConcurrencyConfig             `mapstructure:"concurrency"`
 	TokenRefresh            TokenRefreshConfig            `mapstructure:"token_refresh"`
+	AccountNotification     AccountNotificationConfig     `mapstructure:"account_notification"`
 	RunMode                 string                        `mapstructure:"run_mode" yaml:"run_mode"`
 	Timezone                string                        `mapstructure:"timezone"` // e.g. "Asia/Shanghai", "UTC"
 	Gemini                  GeminiConfig                  `mapstructure:"gemini"`
@@ -125,6 +126,14 @@ type LogSamplingConfig struct {
 	Enabled    bool `mapstructure:"enabled"`
 	Initial    int  `mapstructure:"initial"`
 	Thereafter int  `mapstructure:"thereafter"`
+}
+
+type AccountNotificationConfig struct {
+	Enabled            bool   `mapstructure:"enabled"`
+	PushPlusToken      string `mapstructure:"pushplus_token"`
+	PushPlusTopic      string `mapstructure:"pushplus_topic"`
+	PushPlusChannel    string `mapstructure:"pushplus_channel"`
+	PushPlusWebhookURL string `mapstructure:"pushplus_webhook_url"`
 }
 
 type GeminiConfig struct {
@@ -1422,6 +1431,13 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	cfg.Log.Environment = strings.TrimSpace(cfg.Log.Environment)
 	cfg.Log.StacktraceLevel = strings.ToLower(strings.TrimSpace(cfg.Log.StacktraceLevel))
 	cfg.Log.Output.FilePath = strings.TrimSpace(cfg.Log.Output.FilePath)
+	cfg.AccountNotification.PushPlusToken = strings.TrimSpace(cfg.AccountNotification.PushPlusToken)
+	cfg.AccountNotification.PushPlusTopic = strings.TrimSpace(cfg.AccountNotification.PushPlusTopic)
+	cfg.AccountNotification.PushPlusChannel = strings.TrimSpace(cfg.AccountNotification.PushPlusChannel)
+	cfg.AccountNotification.PushPlusWebhookURL = strings.TrimSpace(cfg.AccountNotification.PushPlusWebhookURL)
+	if cfg.AccountNotification.PushPlusWebhookURL == "" {
+		cfg.AccountNotification.PushPlusWebhookURL = "https://www.pushplus.plus/send"
+	}
 	cfg.Gateway.ForcedCodexInstructionsTemplateFile = strings.TrimSpace(cfg.Gateway.ForcedCodexInstructionsTemplateFile)
 	if cfg.Gateway.ForcedCodexInstructionsTemplateFile != "" {
 		content, err := os.ReadFile(cfg.Gateway.ForcedCodexInstructionsTemplateFile)
@@ -1531,6 +1547,12 @@ func setDefaults() {
 	viper.SetDefault("log.sampling.enabled", false)
 	viper.SetDefault("log.sampling.initial", 100)
 	viper.SetDefault("log.sampling.thereafter", 100)
+
+	viper.SetDefault("account_notification.enabled", false)
+	viper.SetDefault("account_notification.pushplus_token", "")
+	viper.SetDefault("account_notification.pushplus_topic", "")
+	viper.SetDefault("account_notification.pushplus_channel", "wechat")
+	viper.SetDefault("account_notification.pushplus_webhook_url", "https://www.pushplus.plus/send")
 
 	// CORS
 	viper.SetDefault("cors.allowed_origins", []string{})
@@ -1981,6 +2003,14 @@ func (c *Config) Validate() error {
 		}
 		if c.Log.Sampling.Thereafter < 0 {
 			return fmt.Errorf("log.sampling.thereafter must be non-negative")
+		}
+	}
+	if c.AccountNotification.Enabled {
+		if strings.TrimSpace(c.AccountNotification.PushPlusToken) == "" {
+			return fmt.Errorf("account_notification.pushplus_token is required when account notifications are enabled")
+		}
+		if err := ValidateAbsoluteHTTPURL(c.AccountNotification.PushPlusWebhookURL); err != nil {
+			return fmt.Errorf("account_notification.pushplus_webhook_url: %w", err)
 		}
 	}
 

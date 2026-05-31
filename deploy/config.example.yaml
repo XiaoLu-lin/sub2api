@@ -4,7 +4,7 @@
 # Copy this file to /etc/sub2api/config.yaml and modify as needed
 # 复制此文件到 /etc/sub2api/config.yaml 并根据需要修改
 #
-# Documentation / 文档: https://github.com/Wei-Shaw/sub2api
+# Documentation / 文档: https://github.com/XiaoLu-lin/sub2api
 
 # =============================================================================
 # Server Configuration
@@ -65,6 +65,27 @@ server:
 # - simple: Hides SaaS features and skips billing/balance checks
 # - simple: 隐藏 SaaS 功能，跳过计费和余额校验
 run_mode: "standard"
+
+# =============================================================================
+# Account Status Notification
+# 账号状态通知
+# =============================================================================
+account_notification:
+  # Enable PushPlus notification when an account changes from normal to abnormal
+  # 当账号从正常变为异常时启用 PushPlus 通知
+  enabled: false
+  # PushPlus user token/message token. Keep real tokens only in config.yaml or env.
+  # PushPlus 用户 Token/消息 Token。真实值只放在 config.yaml 或环境变量中。
+  pushplus_token: ""
+  # PushPlus group topic code. Leave empty to send only to the token owner.
+  # PushPlus 群组编码。为空时仅发送给 token 所属用户。
+  pushplus_topic: "sub2api-alerts"
+  # PushPlus channel, for example: wechat
+  # PushPlus 发送渠道，例如：wechat
+  pushplus_channel: "wechat"
+  # PushPlus webhook URL
+  # PushPlus 发送接口地址
+  pushplus_webhook_url: "https://www.pushplus.plus/send"
 
 # =============================================================================
 # CORS Configuration

@@ -50,6 +50,24 @@ func TestNormalizeRunMode(t *testing.T) {
 	}
 }
 
+func TestAccountNotificationConfigValidation(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	tempDir := t.TempDir()
+	t.Setenv("DATA_DIR", tempDir)
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "config.yaml"), []byte("account_notification:\n  enabled: true\n"), 0o644))
+
+	_, err := Load()
+	require.ErrorContains(t, err, "account_notification.pushplus_token")
+
+	viper.Reset()
+	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "config.yaml"), []byte("account_notification:\n  enabled: true\n  pushplus_token: token\n"), 0o644))
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.AccountNotification.Enabled)
+	require.Equal(t, "token", cfg.AccountNotification.PushPlusToken)
+}
+
 func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 

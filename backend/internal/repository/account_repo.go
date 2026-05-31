@@ -49,6 +49,7 @@ type accountRepository struct {
 	// Used to proactively sync account snapshot to cache when status changes,
 	// ensuring sticky sessions can promptly detect unavailable accounts.
 	schedulerCache service.SchedulerCache
+	statusNotifier service.AccountStatusNotifier
 }
 
 var schedulerNeutralExtraKeyPrefixes = []string{
@@ -66,14 +67,17 @@ var schedulerNeutralExtraKeys = map[string]struct{}{
 
 // NewAccountRepository 创建账户仓储实例。
 // 这是对外暴露的构造函数，返回接口类型以便于依赖注入。
-func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache) service.AccountRepository {
-	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache)
+func NewAccountRepository(client *dbent.Client, sqlDB *sql.DB, schedulerCache service.SchedulerCache, statusNotifier service.AccountStatusNotifier) service.AccountRepository {
+	return newAccountRepositoryWithSQL(client, sqlDB, schedulerCache, statusNotifier)
 }
 
 // newAccountRepositoryWithSQL 是内部构造函数，支持依赖注入 SQL 执行器。
 // 这种设计便于单元测试时注入 mock 对象。
-func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache) *accountRepository {
-	return &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache}
+func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedulerCache service.SchedulerCache, statusNotifier service.AccountStatusNotifier) *accountRepository {
+	if statusNotifier == nil {
+		statusNotifier = service.NewNoopAccountStatusNotifier()
+	}
+	return &accountRepository{client: client, sql: sqlq, schedulerCache: schedulerCache, statusNotifier: statusNotifier}
 }
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
@@ -317,6 +321,12 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 	if account == nil {
 		return nil
 	}
+	previousStatus := ""
+	if existing, err := r.client.Account.Query().
+		Where(dbaccount.IDEQ(account.ID), dbaccount.DeletedAtIsNil()).
+		Only(ctx); err == nil {
+		previousStatus = existing.Status
+	}
 	schedulable := account.Schedulable
 	if account.Status == service.StatusError {
 		schedulable = false
@@ -405,6 +415,7 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 	// 普通账号编辑（如 model_mapping / credentials）也需要立即刷新单账号快照，
 	// 否则网关在 outbox worker 延迟或异常时仍可能读到旧配置。
 	r.syncSchedulerAccountSnapshot(ctx, account.ID)
+	r.notifyAccountBecameUnhealthy(ctx, previousStatus, *account)
 	return nil
 }
 
@@ -1382,6 +1393,10 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if len(ids) == 0 {
 		return 0, nil
 	}
+	var previousByID map[int64]string
+	if updates.Status != nil && *updates.Status == service.StatusError {
+		previousByID = r.loadAccountStatuses(ctx, ids)
+	}
 
 	setClauses := make([]string, 0, 8)
 	args := make([]any, 0, 8)
@@ -1488,8 +1503,105 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		if shouldSync {
 			r.syncSchedulerAccountSnapshots(ctx, ids)
 		}
+		if updates.Status != nil && *updates.Status == service.StatusError {
+			r.notifyBulkAccountsBecameUnhealthy(ctx, ids, previousByID)
+		}
 	}
 	return rows, nil
+}
+
+func (r *accountRepository) notifyAccountBecameUnhealthy(ctx context.Context, previousStatus string, changed service.Account) {
+	if !becameUnhealthy(previousStatus, changed.Status) {
+		return
+	}
+	accounts, err := r.listAllAccountsForNotification(ctx)
+	if err != nil {
+		logger.LegacyPrintf("repository.account", "[AccountNotification] list accounts failed: account=%d err=%v", changed.ID, err)
+		return
+	}
+	go r.sendAccountStatusNotification(context.Background(), changed, accounts)
+}
+
+func (r *accountRepository) notifyBulkAccountsBecameUnhealthy(ctx context.Context, ids []int64, previousByID map[int64]string) {
+	if len(previousByID) == 0 {
+		return
+	}
+	changedAccounts, err := r.listAccountsByIDsForNotification(ctx, ids)
+	if err != nil {
+		logger.LegacyPrintf("repository.account", "[AccountNotification] list changed accounts failed: err=%v", err)
+		return
+	}
+	accounts, err := r.listAllAccountsForNotification(ctx)
+	if err != nil {
+		logger.LegacyPrintf("repository.account", "[AccountNotification] list accounts failed: err=%v", err)
+		return
+	}
+	for _, changed := range changedAccounts {
+		if becameUnhealthy(previousByID[changed.ID], changed.Status) {
+			copied := changed
+			go r.sendAccountStatusNotification(context.Background(), copied, accounts)
+		}
+	}
+}
+
+func (r *accountRepository) sendAccountStatusNotification(ctx context.Context, changed service.Account, accounts []service.Account) {
+	if r.statusNotifier == nil {
+		return
+	}
+	if err := r.statusNotifier.NotifyAccountBecameUnhealthy(ctx, changed, accounts); err != nil {
+		logger.LegacyPrintf("repository.account", "[AccountNotification] send failed: account=%d err=%v", changed.ID, err)
+	}
+}
+
+func becameUnhealthy(previousStatus, nextStatus string) bool {
+	return previousStatus == service.StatusActive && nextStatus != service.StatusActive
+}
+
+func (r *accountRepository) loadAccountStatuses(ctx context.Context, ids []int64) map[int64]string {
+	accounts, err := r.client.Account.Query().
+		Where(dbaccount.IDIn(ids...), dbaccount.DeletedAtIsNil()).
+		All(ctx)
+	if err != nil {
+		logger.LegacyPrintf("repository.account", "[AccountNotification] load previous statuses failed: err=%v", err)
+		return nil
+	}
+	result := make(map[int64]string, len(accounts))
+	for _, account := range accounts {
+		result[account.ID] = account.Status
+	}
+	return result
+}
+
+func (r *accountRepository) listAllAccountsForNotification(ctx context.Context) ([]service.Account, error) {
+	accounts, err := r.client.Account.Query().
+		Where(dbaccount.DeletedAtIsNil()).
+		Order(dbent.Asc(dbaccount.FieldID)).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return mapEntAccounts(accounts), nil
+}
+
+func (r *accountRepository) listAccountsByIDsForNotification(ctx context.Context, ids []int64) ([]service.Account, error) {
+	accounts, err := r.client.Account.Query().
+		Where(dbaccount.IDIn(ids...), dbaccount.DeletedAtIsNil()).
+		All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return mapEntAccounts(accounts), nil
+}
+
+func mapEntAccounts(accounts []*dbent.Account) []service.Account {
+	result := make([]service.Account, 0, len(accounts))
+	for _, account := range accounts {
+		mapped := accountEntityToService(account)
+		if mapped != nil {
+			result = append(result, *mapped)
+		}
+	}
+	return result
 }
 
 type accountGroupQueryOptions struct {

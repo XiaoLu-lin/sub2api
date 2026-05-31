@@ -495,6 +495,7 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(DefaultSubscriptionAssigner), new(*SubscriptionService)),
 	ProvideConcurrencyService,
 	ProvideUserMessageQueueService,
+	ProvideAccountStatusNotifier,
 	NewUsageRecordWorkerPool,
 	ProvideSchedulerSnapshotService,
 	NewIdentityService,

@@ -286,6 +286,7 @@ func (s *AuthService) FinalizeOAuthEmailAccount(
 	// snapshot user × platform quota（fail-open）
 	_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
 	s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
+	s.notifyUserRegistered(ctx, user, signupSource)
 	return nil
 }
 

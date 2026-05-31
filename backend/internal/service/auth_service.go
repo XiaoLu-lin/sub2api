@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
@@ -232,6 +233,7 @@ func (s *AuthService) RegisterWithVerification(ctx context.Context, email, passw
 	s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 	// snapshot user × platform quota（fail-open）
 	_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
+	s.notifyUserRegistered(ctx, user, "email")
 	if s.affiliateService != nil {
 		if _, err := s.affiliateService.EnsureUserAffiliate(ctx, user.ID); err != nil {
 			logger.LegacyPrintf("service.auth", "[Auth] Failed to initialize affiliate profile for user %d: %v", user.ID, err)
@@ -543,6 +545,7 @@ func (s *AuthService) LoginOrRegisterOAuth(ctx context.Context, email, username 
 				s.assignSubscriptions(ctx, user.ID, grantPlan.Subscriptions, "auto assigned by signup defaults")
 				// snapshot user × platform quota（fail-open）
 				_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
+				s.notifyUserRegistered(ctx, user, signupSource)
 			}
 		} else {
 			logger.LegacyPrintf("service.auth", "[Auth] Database error during oauth login: %v", err)
@@ -696,6 +699,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					// snapshot user × platform quota（fail-open）
 					_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
 					s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
+					s.notifyUserRegistered(ctx, user, signupSource)
 				}
 			} else {
 				if err := s.userRepo.Create(ctx, newUser); err != nil {
@@ -716,6 +720,7 @@ func (s *AuthService) LoginOrRegisterOAuthWithTokenPair(ctx context.Context, ema
 					// snapshot user × platform quota（fail-open）
 					_ = s.snapshotPlatformQuotaDefaults(ctx, user.ID, &grantPlan)
 					s.bindOAuthAffiliate(ctx, user.ID, affiliateCode)
+					s.notifyUserRegistered(ctx, user, signupSource)
 					if invitationRedeemCode != nil {
 						if err := s.redeemRepo.Use(ctx, invitationRedeemCode.ID, user.ID); err != nil {
 							return nil, nil, ErrInvitationCodeInvalid
@@ -760,6 +765,32 @@ func (s *AuthService) assignSubscriptions(ctx context.Context, userID int64, ite
 			logger.LegacyPrintf("service.auth", "[Auth] Failed to assign default subscription: user_id=%d group_id=%d err=%v", userID, item.GroupID, err)
 		}
 	}
+}
+
+func (s *AuthService) notifyUserRegistered(ctx context.Context, user *User, signupSource string) {
+	if s == nil || user == nil || s.cfg == nil || !s.cfg.AccountNotification.Enabled {
+		return
+	}
+	totalUsers := int64(0)
+	if s.userRepo != nil {
+		_, page, err := s.userRepo.List(ctx, pagination.PaginationParams{Page: 1, PageSize: 1})
+		if err != nil {
+			logger.LegacyPrintf("service.auth", "[RegistrationNotification] count users failed: user=%d err=%v", user.ID, err)
+		} else if page != nil {
+			totalUsers = page.Total
+		}
+	}
+	if totalUsers == 0 && user.ID > 0 {
+		totalUsers = user.ID
+	}
+
+	notifier := NewPushPlusRegistrationNotifier(s.cfg.AccountNotification, nil)
+	copied := *user
+	go func() {
+		if err := notifier.NotifyUserRegistered(context.Background(), copied, int(totalUsers), signupSource); err != nil {
+			logger.LegacyPrintf("service.auth", "[RegistrationNotification] send failed: user=%d err=%v", copied.ID, err)
+		}
+	}()
 }
 
 func (s *AuthService) resolveSignupGrantPlan(ctx context.Context, signupSource string) signupGrantPlan {

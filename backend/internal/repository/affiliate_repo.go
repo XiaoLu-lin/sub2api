@@ -76,6 +76,39 @@ func (r *affiliateRepository) GetAffiliateByCode(ctx context.Context, code strin
 	return queryAffiliateByCode(ctx, client, code)
 }
 
+func (r *affiliateRepository) IsDistributorEnabled(ctx context.Context, userID int64) (bool, error) {
+	client := clientFromContext(ctx, r.client)
+	rows, err := client.QueryContext(ctx, `
+SELECT EXISTS (
+  SELECT 1
+  FROM distributor_profiles
+  WHERE user_id = $1 AND status = 'active'
+)`, userID)
+	if err != nil {
+		// Older deployments may not have the distributor tables yet.
+		// Treat that case as "not enabled" so the legacy affiliate page keeps working.
+		if pqErr, ok := err.(*pq.Error); ok && pqErr.Code == "42P01" {
+			return false, nil
+		}
+		return false, fmt.Errorf("query distributor profile: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return false, fmt.Errorf("query distributor profile row: %w", err)
+		}
+		return false, nil
+	}
+	var enabled bool
+	if err := rows.Scan(&enabled); err != nil {
+		return false, fmt.Errorf("scan distributor profile state: %w", err)
+	}
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("query distributor profile rows: %w", err)
+	}
+	return enabled, nil
+}
+
 func (r *affiliateRepository) BindInviter(ctx context.Context, userID, inviterID int64) (bool, error) {
 	var bound bool
 	err := r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {

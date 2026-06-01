@@ -1075,6 +1075,7 @@ export default {
       button: 'Transfer to Balance',
       transferring: 'Transferring...',
       empty: 'No available rebate quota',
+      distributorDisabled: 'This account is enabled as a distributor. Please withdraw from the distributor portal instead.',
       success: '{amount} has been transferred to your balance'
     },
     invitees: {

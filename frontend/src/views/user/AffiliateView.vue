@@ -91,7 +91,7 @@
             </div>
             <button
               class="btn btn-primary"
-              :disabled="transferring || detail.aff_quota <= 0"
+              :disabled="transferDisabled"
               @click="transferQuota"
             >
               <Icon v-if="transferring" name="refresh" size="sm" class="animate-spin" />
@@ -99,6 +99,9 @@
               <span>{{ transferring ? t('affiliate.transfer.transferring') : t('affiliate.transfer.button') }}</span>
             </button>
           </div>
+          <p v-if="detail.is_distributor_enabled" class="mt-3 text-sm text-amber-600 dark:text-amber-400">
+            {{ t('affiliate.transfer.distributorDisabled') }}
+          </p>
           <p v-if="detail.aff_quota <= 0" class="mt-3 text-sm text-amber-600 dark:text-amber-400">
             {{ t('affiliate.transfer.empty') }}
           </p>
@@ -175,6 +178,15 @@ const formattedRebateRate = computed(() => {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toString()
 })
 
+const transferDisabled = computed(() => {
+  return (
+    transferring.value
+    || !detail.value
+    || detail.value.aff_quota <= 0
+    || detail.value.is_distributor_enabled
+  )
+})
+
 function formatCount(value: number): string {
   return value.toLocaleString()
 }
@@ -205,7 +217,7 @@ async function copyInviteLink(): Promise<void> {
 }
 
 async function transferQuota(): Promise<void> {
-  if (!detail.value || detail.value.aff_quota <= 0 || transferring.value) return
+  if (!detail.value || transferDisabled.value) return
   transferring.value = true
   try {
     const resp = await userAPI.transferAffiliateQuota()

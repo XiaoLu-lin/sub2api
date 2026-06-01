@@ -17,6 +17,10 @@ var (
 	ErrAffiliateCodeTaken       = infraerrors.Conflict("AFFILIATE_CODE_TAKEN", "affiliate code already in use")
 	ErrAffiliateAlreadyBound    = infraerrors.Conflict("AFFILIATE_ALREADY_BOUND", "affiliate inviter already bound")
 	ErrAffiliateQuotaEmpty      = infraerrors.BadRequest("AFFILIATE_QUOTA_EMPTY", "no affiliate quota available to transfer")
+	ErrAffiliateTransferDisabledForDistributor = infraerrors.BadRequest(
+		"AFFILIATE_TRANSFER_DISABLED_FOR_DISTRIBUTOR",
+		"当前账号已开通分销商，请前往分销商后台申请提现",
+	)
 )
 
 const (
@@ -91,6 +95,10 @@ type AffiliateDetail struct {
 	// 优先用户自己的专属比例（aff_rebate_rate_percent），否则回退到全局比例。
 	// 用于在用户的 /affiliate 页面直观展示「分享后能拿到多少」。
 	EffectiveRebateRatePercent float64            `json:"effective_rebate_rate_percent"`
+	// IsDistributorEnabled reports whether the current user has an active
+	// distributor profile and therefore must use the distributor portal for
+	// withdrawals instead of the legacy transfer-to-balance flow.
+	IsDistributorEnabled bool               `json:"is_distributor_enabled"`
 	Invitees                   []AffiliateInvitee `json:"invitees"`
 }
 
@@ -103,6 +111,7 @@ type AffiliateRepository interface {
 	ThawFrozenQuota(ctx context.Context, userID int64) (float64, error)
 	TransferQuotaToBalance(ctx context.Context, userID int64) (float64, float64, error)
 	ListInvitees(ctx context.Context, inviterID int64, limit int) ([]AffiliateInvitee, error)
+	IsDistributorEnabled(ctx context.Context, userID int64) (bool, error)
 
 	// 管理端：用户级专属配置
 	UpdateUserAffCode(ctx context.Context, userID int64, newCode string) error
@@ -253,6 +262,10 @@ func (s *AffiliateService) GetAffiliateDetail(ctx context.Context, userID int64)
 	if err != nil {
 		return nil, err
 	}
+	isDistributorEnabled, err := s.isDistributorEnabled(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
 	return &AffiliateDetail{
 		UserID:                     summary.UserID,
 		AffCode:                    summary.AffCode,
@@ -262,6 +275,7 @@ func (s *AffiliateService) GetAffiliateDetail(ctx context.Context, userID int64)
 		AffFrozenQuota:             summary.AffFrozenQuota,
 		AffHistoryQuota:            summary.AffHistoryQuota,
 		EffectiveRebateRatePercent: s.resolveRebateRatePercent(ctx, summary),
+		IsDistributorEnabled:       isDistributorEnabled,
 		Invitees:                   invitees,
 	}, nil
 }
@@ -412,6 +426,13 @@ func (s *AffiliateService) TransferAffiliateQuota(ctx context.Context, userID in
 	if s == nil || s.repo == nil {
 		return 0, 0, infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "affiliate service unavailable")
 	}
+	isDistributorEnabled, err := s.isDistributorEnabled(ctx, userID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if isDistributorEnabled {
+		return 0, 0, ErrAffiliateTransferDisabledForDistributor
+	}
 
 	transferred, balance, err := s.repo.TransferQuotaToBalance(ctx, userID)
 	if err != nil {
@@ -421,6 +442,13 @@ func (s *AffiliateService) TransferAffiliateQuota(ctx context.Context, userID in
 		s.invalidateAffiliateCaches(ctx, userID)
 	}
 	return transferred, balance, nil
+}
+
+func (s *AffiliateService) isDistributorEnabled(ctx context.Context, userID int64) (bool, error) {
+	if s == nil || s.repo == nil {
+		return false, infraerrors.ServiceUnavailable("SERVICE_UNAVAILABLE", "affiliate service unavailable")
+	}
+	return s.repo.IsDistributorEnabled(ctx, userID)
 }
 
 func (s *AffiliateService) listInvitees(ctx context.Context, inviterID int64) ([]AffiliateInvitee, error) {

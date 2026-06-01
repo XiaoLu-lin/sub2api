@@ -1079,6 +1079,7 @@ export default {
       button: '转入余额',
       transferring: '转入中...',
       empty: '当前没有可转入额度',
+      distributorDisabled: '当前账号已开通分销商，请前往分销商后台申请提现。',
       success: '已转入余额：{amount}'
     },
     invitees: {

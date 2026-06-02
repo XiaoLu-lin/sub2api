@@ -70,7 +70,9 @@ func (n *PushPlusRegistrationNotifier) NotifyUserRegistered(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("pushplus returned HTTP %d", resp.StatusCode)
 	}
@@ -123,32 +125,32 @@ func BuildRegistrationNotificationContent(user User, totalUsers int, signupSourc
 	}
 
 	var b strings.Builder
-	b.WriteString("<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1f2937;line-height:1.55;\">")
-	b.WriteString("<h2 style=\"margin:0 0 12px;font-size:20px;\">新用户注册</h2>")
-	b.WriteString("<div style=\"border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:12px;margin-bottom:12px;\">")
-	b.WriteString("<div style=\"font-weight:700;margin-bottom:6px;\">注册用户</div>")
-	b.WriteString("<div>邮箱：")
-	b.WriteString(html.EscapeString(user.Email))
-	b.WriteString("</div>")
+	writeBuilderString(&b, "<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1f2937;line-height:1.55;\">")
+	writeBuilderString(&b, "<h2 style=\"margin:0 0 12px;font-size:20px;\">新用户注册</h2>")
+	writeBuilderString(&b, "<div style=\"border:1px solid #bfdbfe;background:#eff6ff;border-radius:8px;padding:12px;margin-bottom:12px;\">")
+	writeBuilderString(&b, "<div style=\"font-weight:700;margin-bottom:6px;\">注册用户</div>")
+	writeBuilderString(&b, "<div>邮箱：")
+	writeBuilderString(&b, html.EscapeString(user.Email))
+	writeBuilderString(&b, "</div>")
 	if strings.TrimSpace(user.Username) != "" {
-		b.WriteString("<div>用户名：")
-		b.WriteString(html.EscapeString(user.Username))
-		b.WriteString("</div>")
+		writeBuilderString(&b, "<div>用户名：")
+		writeBuilderString(&b, html.EscapeString(user.Username))
+		writeBuilderString(&b, "</div>")
 	}
-	b.WriteString("<div>来源：")
-	b.WriteString(html.EscapeString(source))
-	b.WriteString("</div>")
-	b.WriteString("<div>时间：")
-	b.WriteString(html.EscapeString(now.Format("2006-01-02 15:04:05")))
-	b.WriteString("</div>")
-	b.WriteString("</div>")
+	writeBuilderString(&b, "<div>来源：")
+	writeBuilderString(&b, html.EscapeString(source))
+	writeBuilderString(&b, "</div>")
+	writeBuilderString(&b, "<div>时间：")
+	writeBuilderString(&b, html.EscapeString(now.Format("2006-01-02 15:04:05")))
+	writeBuilderString(&b, "</div>")
+	writeBuilderString(&b, "</div>")
 
-	b.WriteString("<div style=\"background:#dcfce7;border-radius:8px;padding:12px;text-align:center;\">")
-	b.WriteString("<div style=\"font-size:13px;color:#166534;\">当前注册人数</div>")
-	b.WriteString("<div style=\"font-size:28px;font-weight:700;color:#14532d;\">")
-	b.WriteString(html.EscapeString(fmt.Sprintf("%d", totalUsers)))
-	b.WriteString("</div>")
-	b.WriteString("</div>")
-	b.WriteString("</div>")
+	writeBuilderString(&b, "<div style=\"background:#dcfce7;border-radius:8px;padding:12px;text-align:center;\">")
+	writeBuilderString(&b, "<div style=\"font-size:13px;color:#166534;\">当前注册人数</div>")
+	writeBuilderString(&b, "<div style=\"font-size:28px;font-weight:700;color:#14532d;\">")
+	writeBuilderString(&b, html.EscapeString(fmt.Sprintf("%d", totalUsers)))
+	writeBuilderString(&b, "</div>")
+	writeBuilderString(&b, "</div>")
+	writeBuilderString(&b, "</div>")
 	return b.String()
 }

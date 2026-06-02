@@ -66,5 +66,7 @@ func TestPushPlusRegistrationNotifierSendsPayload(t *testing.T) {
 	require.Equal(t, "wechat", got["channel"])
 	require.Equal(t, "html", got["template"])
 	require.Equal(t, "新用户注册｜new@example.com｜来源email｜总数12", got["title"])
-	require.True(t, strings.Contains(got["content"].(string), "new@example.com"))
+	content, ok := got["content"].(string)
+	require.True(t, ok)
+	require.True(t, strings.Contains(content, "new@example.com"))
 }

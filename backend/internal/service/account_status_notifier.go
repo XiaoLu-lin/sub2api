@@ -78,7 +78,9 @@ func (n *PushPlusAccountStatusNotifier) NotifyAccountBecameUnhealthy(ctx context
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("pushplus returned HTTP %d", resp.StatusCode)
 	}
@@ -133,86 +135,90 @@ func BuildAccountStatusNotificationContent(changed Account, accounts []Account, 
 
 	var b strings.Builder
 	total, active, inactive, errorCount := summarizeAccounts(sorted)
-	b.WriteString("<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1f2937;line-height:1.55;\">")
-	b.WriteString("<h2 style=\"margin:0 0 12px;font-size:20px;\">账号状态异常</h2>")
+	writeBuilderString(&b, "<div style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1f2937;line-height:1.55;\">")
+	writeBuilderString(&b, "<h2 style=\"margin:0 0 12px;font-size:20px;\">账号状态异常</h2>")
 	writeSummaryCard(&b, changed, total, active, inactive, errorCount, now)
 	writeAccountGroup(&b, "异常账号", filterAccountsByStatus(sorted, StatusError))
 	writeAccountGroup(&b, "停用账号", filterAccountsByStatus(sorted, StatusDisabled))
 	writeAccountGroup(&b, "正常账号", filterAccountsByStatus(sorted, StatusActive))
 	writeAccountGroup(&b, "其他状态账号", filterAccountsByOtherStatus(sorted))
-	b.WriteString("</div>")
+	writeBuilderString(&b, "</div>")
 	return b.String()
 }
 
 func writeSummaryCard(b *strings.Builder, changed Account, total, active, inactive, errorCount int, now time.Time) {
-	b.WriteString("<div style=\"border:1px solid #fecaca;background:#fff7f7;border-radius:8px;padding:12px;margin-bottom:12px;\">")
-	b.WriteString("<div style=\"font-weight:700;margin-bottom:6px;\">触发账号</div>")
-	b.WriteString("<div>")
-	b.WriteString(html.EscapeString(accountDisplayName(changed)))
-	b.WriteString("</div><div>状态：<b>")
-	b.WriteString(html.EscapeString(changed.Status))
-	b.WriteString("</b></div>")
+	writeBuilderString(b, "<div style=\"border:1px solid #fecaca;background:#fff7f7;border-radius:8px;padding:12px;margin-bottom:12px;\">")
+	writeBuilderString(b, "<div style=\"font-weight:700;margin-bottom:6px;\">触发账号</div>")
+	writeBuilderString(b, "<div>")
+	writeBuilderString(b, html.EscapeString(accountDisplayName(changed)))
+	writeBuilderString(b, "</div><div>状态：<b>")
+	writeBuilderString(b, html.EscapeString(changed.Status))
+	writeBuilderString(b, "</b></div>")
 	if strings.TrimSpace(changed.ErrorMessage) != "" {
-		b.WriteString("<div>原因：")
-		b.WriteString(html.EscapeString(changed.ErrorMessage))
-		b.WriteString("</div>")
+		writeBuilderString(b, "<div>原因：")
+		writeBuilderString(b, html.EscapeString(changed.ErrorMessage))
+		writeBuilderString(b, "</div>")
 	}
-	b.WriteString("<div>时间：")
-	b.WriteString(html.EscapeString(now.Format("2006-01-02 15:04:05")))
-	b.WriteString("</div>")
-	b.WriteString("</div>")
+	writeBuilderString(b, "<div>时间：")
+	writeBuilderString(b, html.EscapeString(now.Format("2006-01-02 15:04:05")))
+	writeBuilderString(b, "</div>")
+	writeBuilderString(b, "</div>")
 
-	b.WriteString("<div style=\"display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;\">")
+	writeBuilderString(b, "<div style=\"display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;\">")
 	writeMetric(b, "总数", total, "#e5e7eb")
 	writeMetric(b, "正常", active, "#bbf7d0")
 	writeMetric(b, "异常", errorCount, "#fecaca")
 	writeMetric(b, "停用", inactive, "#fde68a")
-	b.WriteString("</div>")
+	writeBuilderString(b, "</div>")
 }
 
 func writeMetric(b *strings.Builder, label string, value int, bg string) {
-	b.WriteString("<div style=\"background:")
-	b.WriteString(bg)
-	b.WriteString(";border-radius:8px;padding:10px;text-align:center;\">")
-	b.WriteString("<div style=\"font-size:12px;color:#4b5563;\">")
-	b.WriteString(html.EscapeString(label))
-	b.WriteString("</div><div style=\"font-size:20px;font-weight:700;\">")
-	b.WriteString(html.EscapeString(fmt.Sprintf("%d", value)))
-	b.WriteString("</div></div>")
+	writeBuilderString(b, "<div style=\"background:")
+	writeBuilderString(b, bg)
+	writeBuilderString(b, ";border-radius:8px;padding:10px;text-align:center;\">")
+	writeBuilderString(b, "<div style=\"font-size:12px;color:#4b5563;\">")
+	writeBuilderString(b, html.EscapeString(label))
+	writeBuilderString(b, "</div><div style=\"font-size:20px;font-weight:700;\">")
+	writeBuilderString(b, html.EscapeString(fmt.Sprintf("%d", value)))
+	writeBuilderString(b, "</div></div>")
 }
 
 func writeAccountGroup(b *strings.Builder, title string, accounts []Account) {
 	if len(accounts) == 0 {
 		return
 	}
-	b.WriteString("<h3 style=\"margin:16px 0 8px;font-size:16px;\">")
-	b.WriteString(html.EscapeString(title))
-	b.WriteString("</h3>")
+	writeBuilderString(b, "<h3 style=\"margin:16px 0 8px;font-size:16px;\">")
+	writeBuilderString(b, html.EscapeString(title))
+	writeBuilderString(b, "</h3>")
 	for _, acc := range accounts {
 		writeAccountCard(b, acc)
 	}
 }
 
 func writeAccountCard(b *strings.Builder, acc Account) {
-	b.WriteString("<div style=\"border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:8px;\">")
-	b.WriteString("<div style=\"font-weight:700;\">")
-	b.WriteString(html.EscapeString(accountDisplayName(acc)))
-	b.WriteString("</div>")
-	b.WriteString("<div style=\"color:#4b5563;font-size:13px;\">")
-	b.WriteString(html.EscapeString(acc.Platform))
-	b.WriteString(" / ")
-	b.WriteString(html.EscapeString(acc.Type))
-	b.WriteString(" / ")
-	b.WriteString(html.EscapeString(acc.Status))
-	b.WriteString(" / 可调度：")
-	b.WriteString(html.EscapeString(fmt.Sprintf("%t", acc.Schedulable)))
-	b.WriteString("</div>")
+	writeBuilderString(b, "<div style=\"border:1px solid #e5e7eb;border-radius:8px;padding:10px;margin-bottom:8px;\">")
+	writeBuilderString(b, "<div style=\"font-weight:700;\">")
+	writeBuilderString(b, html.EscapeString(accountDisplayName(acc)))
+	writeBuilderString(b, "</div>")
+	writeBuilderString(b, "<div style=\"color:#4b5563;font-size:13px;\">")
+	writeBuilderString(b, html.EscapeString(acc.Platform))
+	writeBuilderString(b, " / ")
+	writeBuilderString(b, html.EscapeString(acc.Type))
+	writeBuilderString(b, " / ")
+	writeBuilderString(b, html.EscapeString(acc.Status))
+	writeBuilderString(b, " / 可调度：")
+	writeBuilderString(b, html.EscapeString(fmt.Sprintf("%t", acc.Schedulable)))
+	writeBuilderString(b, "</div>")
 	if strings.TrimSpace(acc.ErrorMessage) != "" {
-		b.WriteString("<div style=\"margin-top:6px;color:#991b1b;\">")
-		b.WriteString(html.EscapeString(acc.ErrorMessage))
-		b.WriteString("</div>")
+		writeBuilderString(b, "<div style=\"margin-top:6px;color:#991b1b;\">")
+		writeBuilderString(b, html.EscapeString(acc.ErrorMessage))
+		writeBuilderString(b, "</div>")
 	}
-	b.WriteString("</div>")
+	writeBuilderString(b, "</div>")
+}
+
+func writeBuilderString(b *strings.Builder, value string) {
+	_, _ = b.WriteString(value)
 }
 
 func summarizeAccounts(accounts []Account) (total, active, inactive, errorCount int) {

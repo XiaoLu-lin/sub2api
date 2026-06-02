@@ -72,7 +72,8 @@ func TestPushPlusAccountStatusNotifierSendsPayload(t *testing.T) {
 	require.Equal(t, "group-1", got["topic"])
 	require.Equal(t, "wechat", got["channel"])
 	require.Equal(t, "html", got["template"])
-	title := got["title"].(string)
+	title, ok := got["title"].(string)
+	require.True(t, ok)
 	require.True(t, strings.Contains(title, "账号异常 1/1"))
 	require.True(t, strings.Contains(title, "openai-a"))
 }
